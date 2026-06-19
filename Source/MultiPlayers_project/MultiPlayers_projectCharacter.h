@@ -5,11 +5,13 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
+#include "PredictedDashMovementComponent.h"
 #include "MultiPlayers_projectCharacter.generated.h"
 
 class USpringArmComponent;
 class UCameraComponent;
 class UHealthComponent;
+class UPredictedDashMovementComponent;
 class UInputAction;
 struct FInputActionValue;
 
@@ -32,8 +34,12 @@ class AMultiPlayers_projectCharacter : public ACharacter
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FollowCamera;
 
+	/** Health component*/
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	UHealthComponent* Health;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	UPredictedDashMovementComponent* DashMovement;
 	
 protected:
 
@@ -61,10 +67,14 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Input")
 	UInputAction* InvalidDamageAction;
 
+	/** Dash on key **/
+	UPROPERTY(EditAnywhere, Category = "Input")
+	UInputAction* DashAction;
+
 public:
 
 	/** Constructor */
-	AMultiPlayers_projectCharacter();	
+	AMultiPlayers_projectCharacter(const FObjectInitializer& ObjectInitializer);
 
 protected:
 
@@ -88,6 +98,7 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void DoDamage(float Amount, float Radius);
 	
+	void Dash(const FInputActionValue& Value);
 
 public:
 

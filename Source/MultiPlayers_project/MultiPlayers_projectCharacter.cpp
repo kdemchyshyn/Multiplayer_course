@@ -14,7 +14,8 @@
 #include "Engine/OverlapResult.h"
 #include "HealthComponent.h"
 
-AMultiPlayers_projectCharacter::AMultiPlayers_projectCharacter()
+AMultiPlayers_projectCharacter::AMultiPlayers_projectCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UPredictedDashMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
@@ -50,6 +51,8 @@ AMultiPlayers_projectCharacter::AMultiPlayers_projectCharacter()
 
 	Health = CreateDefaultSubobject<UHealthComponent>(TEXT("Health"));
 
+	DashMovement = Cast<UPredictedDashMovementComponent>(GetCharacterMovement());
+
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 }
@@ -73,6 +76,9 @@ void AMultiPlayers_projectCharacter::SetupPlayerInputComponent(UInputComponent* 
 		// Damage
 		EnhancedInputComponent->BindAction(ValidDamageAction, ETriggerEvent::Started, this, &AMultiPlayers_projectCharacter::ValidDamage);
 		EnhancedInputComponent->BindAction(InvalidDamageAction, ETriggerEvent::Started, this, &AMultiPlayers_projectCharacter::InvalidDamage);
+
+		// Dashing
+		EnhancedInputComponent->BindAction(DashAction, ETriggerEvent::Triggered, this, &AMultiPlayers_projectCharacter::Dash);
 	}
 	else
 	{
@@ -191,5 +197,13 @@ void AMultiPlayers_projectCharacter::DoDamage_Implementation(float Amount, float
 				}
 			}
 		}
+	}
+}
+
+void AMultiPlayers_projectCharacter::Dash(const FInputActionValue& Value)
+{
+	if (DashMovement)
+	{
+		DashMovement->bWantsToDash = true;
 	}
 }
