@@ -64,6 +64,10 @@ void ATDMGameMode::CheckWinCondition()
 	{
 		GetWorldTimerManager().ClearTimer(MatchTimerHandle); 
 		EndMatch();
+
+		int32 WinnerTeamId = (TDMGameState->GetTeamScore(0) > TDMGameState->GetTeamScore(1)) ? 0 
+			: (TDMGameState->GetTeamScore(0) < TDMGameState->GetTeamScore(1)) ? 1 : 2;
+		TDMGameState->SetWinner(WinnerTeamId);
 	}
 }
 

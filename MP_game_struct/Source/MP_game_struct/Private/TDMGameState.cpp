@@ -22,6 +22,7 @@ void ATDMGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 
 	DOREPLIFETIME(ATDMGameState, TeamScores);
 	DOREPLIFETIME(ATDMGameState, RemainingMatchTime);
+	DOREPLIFETIME(ATDMGameState, WinnerTeamId);
 }
 
 void ATDMGameState::OnRep_TeamScores()
@@ -35,6 +36,11 @@ void ATDMGameState::OnRep_TeamScores()
 void ATDMGameState::OnRep_RemainingMatchTime()
 {
 	OnMatchTimeChanged.Broadcast(RemainingMatchTime);
+}
+
+void ATDMGameState::OnRep_Winner()
+{
+	OnWinnerChanged.Broadcast(WinnerTeamId);
 }
 
 void ATDMGameState::AddTeamScore(int32 TeamId)
@@ -65,5 +71,21 @@ void ATDMGameState::SetRemainingMatchTime(float Amount)
 	RemainingMatchTime = Amount;
 
 	OnRep_RemainingMatchTime();
+}
+
+int32 ATDMGameState::GetWinner()
+{
+	return WinnerTeamId;
+}
+
+void ATDMGameState::SetWinner(int32 TeamId)
+{
+	if (!HasAuthority())return;
+
+	if (TeamId < -1 || TeamId > 2) return;
+
+	WinnerTeamId = TeamId;
+
+	OnRep_Winner();
 }
 
