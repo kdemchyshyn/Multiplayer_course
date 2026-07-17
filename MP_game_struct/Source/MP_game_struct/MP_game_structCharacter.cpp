@@ -11,7 +11,9 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "Engine/OverlapResult.h"
+#include "Net/UnrealNetwork.h"
 #include "TDMPlayerState.h"
+#include "TDMGameState.h"
 #include "TDMGameMode.h"
 #include "MP_game_struct.h"
 
@@ -51,6 +53,29 @@ AMP_game_structCharacter::AMP_game_structCharacter()
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
+}
+
+void AMP_game_structCharacter::BeginPlay()
+{
+	// Call the base class  
+	Super::BeginPlay();
+
+	// Start the timer to take hitbox snapshots
+	GetWorldTimerManager().SetTimer(HitboxSnapshotTimerHandle, this, &AMP_game_structCharacter::TakeHitboxSnapshot, 0.05f, true);
+
+	if (HasAuthority())
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Owner = this;
+
+		EquippedWeapon = GetWorld()->SpawnActor<AShotWeapon>(AShotWeapon::StaticClass(), GetActorLocation(), FRotator::ZeroRotator, SpawnParams);
+	}
+}
+
+void AMP_game_structCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AMP_game_structCharacter, EquippedWeapon);
 }
 
 void AMP_game_structCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -140,42 +165,21 @@ void AMP_game_structCharacter::DoJumpEnd()
 
 void AMP_game_structCharacter::Kill(const FInputActionValue& Value)
 {
-	// Get objects to apply damage to
-	FVector Location = GetActorLocation();
+	if (!EquippedWeapon) return;
 
-	FCollisionShape Sphere = FCollisionShape::MakeSphere(100.0f);
+	FTransform head = GetMesh()->GetSocketTransform(FName("head"), RTS_World);
 
-	TArray<FOverlapResult> OverlapResults;
+	FVector StartLocation = head.GetLocation();
 
-	FCollisionObjectQueryParams ObjectQueryParams(ECollisionChannel::ECC_Pawn);
+	FVector AimDirection = FollowCamera->GetForwardVector();
 
-	FCollisionQueryParams QueryParams;
-	QueryParams.AddIgnoredActor(this);
-
-	bool bHit = GetWorld()->OverlapMultiByObjectType(
-		OverlapResults,
-		Location,
-		FQuat::Identity,
-		ObjectQueryParams,
-		Sphere,
-		QueryParams
-	);
-
-	if (bHit)
+	float Timestamp = 0.0f;
+	if (ATDMGameState* GameState = GetWorld()->GetGameState<ATDMGameState>())
 	{
-		TSet<AActor*> DamagedActors;
-
-		for (const FOverlapResult& Result : OverlapResults)
-		{
-			AActor* HitActor = Result.GetActor();
-			if (HitActor && !DamagedActors.Contains(HitActor))
-			{
-				Server_KillTarget(HitActor);
-
-				DamagedActors.Add(HitActor);
-			}
-		}
+		Timestamp = GameState->GetServerWorldTimeSeconds();
 	}
+
+	EquippedWeapon->ServerFireWeapon(StartLocation, AimDirection, Timestamp);
 }
 
 bool AMP_game_structCharacter::Server_KillTarget_Validate(AActor* VictimActor)
@@ -193,8 +197,8 @@ void AMP_game_structCharacter::Server_KillTarget_Implementation(AActor* VictimAc
 	APawn* VictimPawn = Cast<APawn>(VictimActor);
 	if (!VictimPawn) return;
 
-	APlayerController* VictimPC = Cast<APlayerController>(VictimPawn->GetController());
-	APlayerController* KillerPC = Cast<APlayerController>(GetController());
+	AController* VictimPC = VictimPawn->GetController();
+	AController* KillerPC = GetController();
 
 	if (!VictimPC || !KillerPC) return;
 
@@ -210,4 +214,34 @@ void AMP_game_structCharacter::Server_KillTarget_Implementation(AActor* VictimAc
 	{
 		GM->ScoreKill(VictimPC, KillerPC);
 	}
+
+	// Actually destroy the victim and respawn them
+	VictimPawn->Destroy();
+	if (GM && VictimPC)
+	{
+		GM->RestartPlayer(VictimPC);
+	}
+}
+
+void AMP_game_structCharacter::TakeHitboxSnapshot()
+{
+	if (!HasAuthority()) return;
+	
+	FHitboxSnapshot Snapshot;
+
+	if (ATDMGameState* GameState = GetWorld()->GetGameState<ATDMGameState>())
+	{
+		// Returns the synchronized server time as a float
+		Snapshot.Timestamp = GameState->GetServerWorldTimeSeconds();
+	}
+
+	Snapshot.HeadTransform = GetMesh()->GetSocketTransform(FName("head"), RTS_World);
+	Snapshot.TorsoTransform = GetMesh()->GetSocketTransform(FName("spine_03"), RTS_World);
+
+	if (HitboxSnapshots.Num() >= 20)
+	{
+		HitboxSnapshots.RemoveAt(0);
+	}
+
+	HitboxSnapshots.Add(Snapshot);
 }

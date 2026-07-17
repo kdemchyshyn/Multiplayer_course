@@ -32,14 +32,20 @@ void ATDMGameMode::PostLogin(APlayerController* NewPlayer)
 {
 	Super::PostLogin(NewPlayer);
 
+	AssignTeam(NewPlayer);
+}
+
+void ATDMGameMode::AssignTeam(AController* NewController)
+{
+	if (!NewController) return;
+
 	int32 Team0 = 0;
 	int32 Team1 = 0;
 
 	ATDMGameState* TDMGameState = GetGameState<ATDMGameState>();
-
 	if (!TDMGameState) return;
 
-	for (APlayerState* Player : TDMGameState->PlayerArray )
+	for (APlayerState* Player : TDMGameState->PlayerArray)
 	{
 		if (ATDMPlayerState* TDMPlayer = Cast<ATDMPlayerState>(Player))
 		{
@@ -50,7 +56,7 @@ void ATDMGameMode::PostLogin(APlayerController* NewPlayer)
 
 	int32 Team = (Team0 > Team1) ? 1 : 0;
 
-	if (ATDMPlayerState* NewPS = NewPlayer->GetPlayerState<ATDMPlayerState>())
+	if (ATDMPlayerState* NewPS = NewController->GetPlayerState<ATDMPlayerState>())
 	{
 		NewPS->SetTeam(Team);
 	}
@@ -71,7 +77,7 @@ void ATDMGameMode::CheckWinCondition()
 	}
 }
 
-void ATDMGameMode::ScoreKill(APlayerController* victimController, APlayerController* killerController)
+void ATDMGameMode::ScoreKill(AController* victimController, AController* killerController)
 {
 	if (!victimController || !killerController) return;
 

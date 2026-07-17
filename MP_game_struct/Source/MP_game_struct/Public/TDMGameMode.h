@@ -27,11 +27,13 @@ public:
 	void CheckWinCondition();
 	
 	UFUNCTION() 
-	void ScoreKill(APlayerController* victimController, APlayerController* killerController);
+	void ScoreKill(AController* victimController, AController* killerController);
 
 private:
 	FTimerHandle MatchTimerHandle;
 
 	void UpdateMatchTimer();
 
+	UFUNCTION(BlueprintCallable, Category = "Teams")
+	void AssignTeam(AController* NewController);
 };

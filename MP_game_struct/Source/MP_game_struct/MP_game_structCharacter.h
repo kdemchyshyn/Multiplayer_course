@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ShotWeapon.h"
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
 #include "MP_game_structCharacter.generated.h"
@@ -13,6 +14,22 @@ class UInputAction;
 struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
+
+/** Struct for Lag compensation */
+USTRUCT()
+struct FHitboxSnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	float Timestamp;
+
+	UPROPERTY()
+	FTransform HeadTransform;
+
+	UPROPERTY()
+	FTransform TorsoTransform;
+};
 
 /**
  *  A simple player-controllable third person character
@@ -58,6 +75,10 @@ public:
 	/** Constructor */
 	AMP_game_structCharacter();	
 
+	virtual void BeginPlay() override;
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 protected:
 
 	/** Initialize input action bindings */
@@ -102,5 +123,17 @@ public:
 
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+
+	// Lag compensation related functions
+	TArray<FHitboxSnapshot> HitboxSnapshots;
+
+	FTimerHandle HitboxSnapshotTimerHandle;
+
+	void TakeHitboxSnapshot();
+
+private:
+	UPROPERTY(Replicated)
+	AShotWeapon* EquippedWeapon;
 };
 
