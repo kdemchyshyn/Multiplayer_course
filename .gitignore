@@ -73,3 +73,28 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
+
+# Credentials & Secrets (Steam app keys, EOS product secrets, UGS service account keys, etc.)
+*.secret
+*.secrets
+*.key
+*.keys
+*.pem
+*.pfx
+*.p12
+*.pub
+*.cer
+*.crt
+.env
+.env.*
+credentials.json
+*credential*
+*Credentials*
+*token*
+*Token*
+
+# Steam Keys & Credentials
+steam_appid.txt
+*Steam*Secret*
+*Steam*.key
+sdkencryptedappticket*
