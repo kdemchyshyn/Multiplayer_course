@@ -18,8 +18,12 @@ public class MP_game_struct : ModuleRules
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"UMG",
-			"Slate"
-		});
+			"Slate",
+            "OnlineSubsystem",
+			"OnlineSubsystemUtils",
+            "OnlineSubsystemSteam",
+			"SteamSockets"
+        });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
