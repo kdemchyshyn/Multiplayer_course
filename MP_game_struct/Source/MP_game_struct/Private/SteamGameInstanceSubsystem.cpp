@@ -78,7 +78,7 @@ void USteamGameInstanceSubsystem::OnCreateSessionCompleted(FName SessionName, bo
 
 	if (bWasSuccessful)
 	{
-		GetWorld()->ServerTravel("/Game/ThirdPerson/Lvl_ThirdPerson?listen");
+		GetWorld()->ServerTravel("/Game/ThirdPerson/Lvl_ThirdPerson?listen?port=7777");
 	}
 }
 
