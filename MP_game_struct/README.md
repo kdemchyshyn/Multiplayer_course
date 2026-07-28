@@ -126,3 +126,33 @@ The project utilizes **Platform-based Authentication (Steam Client & SteamID)**:
 ### 5. Steam Client Dependency
 - **No Offline LAN / Direct IP Fallback in Subsystem**: If the Steam client is not running or offline when launching the game, `IOnlineSubsystem::Get()` will not return valid Steam session interfaces (`SessionInterface.IsValid()` returns false), preventing players from hosting or discovering lobbies via `USteamGameInstanceSubsystem`.
 - **No LAN or same network**: If game tries to run from the same network it will be identified as LAN and players won't be able to play. This was done to ensure and test different network connection and gameplay.
+
+
+
+# Server Build & Deployment
+## Listen server
+### Why a listen server?
+A dedicated server is an Unreal Engine source build feature. I am using a non-source build (the standard engine downloaded from the Epic Games Launcher), so I do not have access to this feature.
+
+### Host/Join Commands
+To run your machine as a host, you can start the application and press the "Host Game" button. <br>
+If you want to start the host via the terminal, use:
+`./MP_game_struct.exe /Game/ThirdPerson/Lvl_ThirdPerson?listen?port=7777 -log`
+**Note:** You must run this command from the same directory as the `.exe` file.
+
+To join, you must start the game and use a combination of "Find Game" and "Join" (join only works with subsystem - but you may check if there any rooms at all). <br>
+Alternatively, you can open the terminal in the lobby using "`~`" and use the following command to connect locally or over a network:
+`open <host_ip>:7777`
+
+### Listen Server Limitations
+*   **Host latency advantage:** Because the host and client are on the same machine, latency and packet loss are minimal compared to other players.
+*   **Hardware limitations:** The host machine uses its computing resources for two instances simultaneously (the client and the server).
+*   **Server overhead:** The host experiences server overhead due to rendering and other client-only systems running simultaneously.
+*   **Server management:** Because the server runs on a player's machine, game administration is entirely the host player's responsibility.
+*   **Scalability:** Listen servers do not support large matches and are difficult for game developers to scale.
+
+### Bonus Task (Port Forwarding and CGNAT)
+I attempted to connect from two different physical networks without the Steam subsystem, but it failed. I tried a few combinations: a mobile network connecting to a home Wi-Fi network (which failed), and then two separate home Wi-Fi networks (which also failed). I suspect this is because both my home network and mobile network use CGNAT, which blocks inbound connections and causes these attempts to fail.
+
+Here is my port forwarding rule:
+<img width="1242" height="647" alt="Port_forwarding_rule" src="https://github.com/user-attachments/assets/b1039bcf-3318-4366-b38a-e65247ec8937" />
