@@ -130,6 +130,9 @@ The project utilizes **Platform-based Authentication (Steam Client & SteamID)**:
 
 
 # Server Build & Deployment
+## Release
+https://github.com/kdemchyshyn/Multiplayer_course/releases/tag/Practice_9
+
 ## Listen server
 ### Why a listen server?
 A dedicated server is an Unreal Engine source build feature. I am using a non-source build (the standard engine downloaded from the Epic Games Launcher), so I do not have access to this feature.
