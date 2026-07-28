@@ -18,8 +18,9 @@ public class MP_game_struct : ModuleRules
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"UMG",
-			"Slate"
-		});
+			"Slate",
+			"DeveloperSettings"
+        });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 

@@ -12,6 +12,7 @@ class USpringArmComponent;
 class UCameraComponent;
 class UInputAction;
 struct FInputActionValue;
+class UHealthComponent;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
@@ -22,13 +23,13 @@ struct FHitboxSnapshot
 	GENERATED_BODY()
 
 	UPROPERTY()
-	float Timestamp;
+	float Timestamp = 0.0f;
 
 	UPROPERTY()
-	FTransform HeadTransform;
+	FTransform HeadTransform = FTransform::Identity;
 
 	UPROPERTY()
-	FTransform TorsoTransform;
+	FTransform TorsoTransform = FTransform::Identity;
 };
 
 /**
@@ -47,6 +48,10 @@ class AMP_game_structCharacter : public ACharacter
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FollowCamera;
+
+	/** Replicated health owned by this character. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	UHealthComponent* HealthComponent;
 	
 protected:
 
@@ -73,11 +78,16 @@ protected:
 public:
 
 	/** Constructor */
-	AMP_game_structCharacter();	
+	AMP_game_structCharacter(const FObjectInitializer& ObjectInitializer);
 
 	virtual void BeginPlay() override;
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	UHealthComponent* GetHealthComponent() const
+	{
+		return HealthComponent;
+	}
 
 protected:
 
@@ -113,8 +123,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoJumpEnd();
 
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_KillTarget(AActor* VictimActor);
+	void KillValidatedTarget(AActor* VictimActor);
 
 public:
 
@@ -133,6 +142,8 @@ public:
 	void TakeHitboxSnapshot();
 
 private:
+	uint16 LocalShotSequence = 0;
+
 	UPROPERTY(Replicated)
 	AShotWeapon* EquippedWeapon;
 };

@@ -53,7 +53,7 @@ public:
 	void OnRep_CurrentHealth();
 
 	// Function to apply damage to the health component, called on the server
-	UFUNCTION(Server, Reliable, WithValidation)
+	UFUNCTION(Server, Reliable)
 	void ServerApplyDamage(float Amount);
 
 	// Function to trigger a damage flash effect on clients, called on the server
@@ -62,4 +62,14 @@ public:
 
 private:
 	void ClearDamageFlash();
+
+public:
+	UFUNCTION(BlueprintPure, Category = "Health")
+	float GetCurrentHealth() const { return CurrentHealth; }
+
+	UFUNCTION(BlueprintPure, Category = "Health")
+	float GetMaxHealth() const { return MaxHealth; }
+
+	UFUNCTION(BlueprintPure, Category = "Health")
+	bool IsDead() const { return CurrentHealth <= 0.0f; }
 };

@@ -6,6 +6,9 @@
 #include "GameFramework/Actor.h"
 #include "ShotWeapon.generated.h"
 
+class ATDMPlayerState;
+class AMP_game_structCharacter;
+
 UCLASS()
 class MP_GAME_STRUCT_API AShotWeapon : public AActor
 {
@@ -23,12 +26,14 @@ public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
-	UFUNCTION(Server, Reliable, WithValidation)
-	void ServerFireWeapon(FVector StartLocation, FVector AimDirection, float ClientTimeStamp);
+	UFUNCTION(Server, Unreliable)
+	void ServerFireWeapon(FVector AimDirection, float ClientTimeStamp);
 
 private:
-	UPROPERTY()
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
 	float MaxShotRange = 2000.0f;
+
+	bool ValidateFireRequest(FVector& AimDirection,	float ClientTimeStamp, AMP_game_structCharacter*& OutShooter, ATDMPlayerState*& OutShooterPlayerState, FVector& OutStartLocation);
 
 	UFUNCTION()
 	void CalculateShot(FVector StartLocation, FVector AimDirection, FTransform HeadTransform, FTransform TorsoTransform, AMP_game_structCharacter* Target);

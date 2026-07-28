@@ -1,13 +1,16 @@
 #include "HealthComponent.h"
 #include "GameFramework/Character.h"          
 #include "Components/SkeletalMeshComponent.h"
+#include "AntiCheat/AntiCheatLog.h"
+#include "AntiCheat/AntiCheatSettings.h"
+#include "TDMPlayerState.h"
 
 // Sets default values for this component's properties
 UHealthComponent::UHealthComponent()
 {
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
-	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bCanEverTick = false;
 
 	SetIsReplicatedByDefault(true);
 
@@ -20,6 +23,11 @@ UHealthComponent::UHealthComponent()
 void UHealthComponent::BeginPlay()
 {
 	Super::BeginPlay();
+
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		CurrentHealth = MaxHealth;
+	}
 
 	if (GEngine)
 	{
@@ -61,23 +69,62 @@ void UHealthComponent::OnRep_CurrentHealth()
 	}
 }
 
-// Function to apply damage to the health component, called on the server
-bool UHealthComponent::ServerApplyDamage_Validate(float Amount)
-{
-	if (Amount > 0.0f && Amount <= MaxHealth)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Applying damage: %f"), Amount);
-
-		return true;
-	}
-
-	UE_LOG(LogTemp, Warning, TEXT("Invalid damage amount: %f"), Amount);
-
-	return false;
-}
-
 void UHealthComponent::ServerApplyDamage_Implementation(float Amount)
 {
+	static const FName DamageAction(TEXT("Damage"));
+
+	ACharacter* OwnerCharacter = Cast<ACharacter>(GetOwner());
+
+	ATDMPlayerState* OwnerPlayerState = OwnerCharacter ? OwnerCharacter->GetPlayerState<ATDMPlayerState>() : nullptr;
+	if (!OwnerCharacter || !OwnerCharacter->HasAuthority() || !OwnerPlayerState)
+	{
+		FAntiCheatLog::LogRejectedRequest(
+			this,
+			OwnerPlayerState,
+			DamageAction,
+			TEXT("InvalidHealthOwner"));
+
+		return;
+	}
+
+	const UAntiCheatSettings* Settings = GetDefault<UAntiCheatSettings>();
+
+	FString RateLimitReason;
+	if (!OwnerPlayerState->ConsumeRPCBudget(DamageAction, Settings->DamageRateLimit, RateLimitReason))
+	{
+		FAntiCheatLog::LogRejectedRequest(
+			this,
+			OwnerPlayerState,
+			DamageAction,
+			RateLimitReason);
+
+		return;
+	}
+
+	if (!FMath::IsFinite(Amount) || Amount <= 0.0f || Amount > MaxHealth)
+	{
+		FAntiCheatLog::LogRejectedRequest(
+			this,
+			OwnerPlayerState,
+			DamageAction,
+			FString::Printf(
+				TEXT("InvalidDamageAmount Amount=%.2f"),
+				Amount));
+
+		return;
+	}
+
+	if (IsDead())
+	{
+		FAntiCheatLog::LogRejectedRequest(
+			this,
+			OwnerPlayerState,
+			DamageAction,
+			TEXT("TargetAlreadyDead"));
+
+		return;
+	}
+
 	CurrentHealth = FMath::Clamp(CurrentHealth - Amount, 0.0f, MaxHealth);
 
 	OnRep_CurrentHealth();
@@ -94,6 +141,7 @@ void UHealthComponent::MulticastDamageFlash_Implementation()
 	// ACharacter exposes GetMesh() directly — more reliable than FindComponentByClass
 	ACharacter* OwnerCharacter = Cast<ACharacter>(Owner);
 	USkeletalMeshComponent* Mesh = OwnerCharacter ? OwnerCharacter->GetMesh() : nullptr;
+	if (!Mesh) return;
 
 	Mesh->SetOverlayMaterial(DamageFlashMaterial);
 

@@ -6,6 +6,10 @@
 #include "MP_game_structCharacter.h"
 #include "Kismet/GameplayStatics.h"
 #include "DrawDebugHelpers.h"
+#include "AntiCheat/AntiCheatLog.h"
+#include "AntiCheat/AntiCheatSettings.h"
+#include "TDMPlayerState.h"
+#include "HealthComponent.h"
 
 static TAutoConsoleVariable<int32> CVarShowLagComp(
     TEXT("net.ShowLagComp"),
@@ -41,29 +45,127 @@ void AShotWeapon::Tick(float DeltaTime)
 
 }
 
-bool AShotWeapon::ServerFireWeapon_Validate(FVector StartLocation, FVector AimDirection, float ClientTimeStamp)
+bool AShotWeapon::ValidateFireRequest(FVector& AimDirection, float ClientTimeStamp, AMP_game_structCharacter*& OutShooter, ATDMPlayerState*& OutShooterPlayerState, FVector& OutStartLocation)
 {
-    if (AimDirection.IsNearlyZero() || !AimDirection.IsNormalized()) return false;
+    static const FName FireAction(TEXT("Fire"));
+
+    OutShooter = Cast<AMP_game_structCharacter>(GetOwner());
+    if (!OutShooter || !OutShooter->HasAuthority() || !OutShooter->GetController())
+    {
+        FAntiCheatLog::LogRejectedRequest(
+            this,
+            nullptr,
+            FireAction,
+            TEXT("InvalidOwner"));
+        return false;
+    }
+
+    OutShooterPlayerState = OutShooter->GetPlayerState<ATDMPlayerState>();
+    if (!OutShooterPlayerState)
+    {
+        FAntiCheatLog::LogRejectedRequest(
+            this,
+            nullptr,
+            FireAction,
+            TEXT("MissingPlayerState"));
+        return false;
+    }
+
+    const UAntiCheatSettings* Settings = GetDefault<UAntiCheatSettings>();
+    FString RateLimitReason;
+    if (!OutShooterPlayerState->ConsumeRPCBudget(FireAction, Settings->FireRateLimit, RateLimitReason))
+    {
+        FAntiCheatLog::LogRejectedRequest(
+            this,
+            OutShooterPlayerState,
+            FireAction,
+            RateLimitReason);
+        return false;
+    }
+
+    const bool bAimFinite = FMath::IsFinite(AimDirection.X) && FMath::IsFinite(AimDirection.Y) && FMath::IsFinite(AimDirection.Z);
+    if (!bAimFinite || AimDirection.IsNearlyZero() || !AimDirection.IsNormalized())
+    {
+        FAntiCheatLog::LogRejectedRequest(
+            this,
+            OutShooterPlayerState,
+            FireAction,
+            TEXT("InvalidAim"));
+        return false;
+    }
+    if (!FMath::IsFinite(ClientTimeStamp))
+    {
+        FAntiCheatLog::LogRejectedRequest(
+            this,
+            OutShooterPlayerState,
+            FireAction,
+            TEXT("InvalidTimestamp"));
+        return false;
+    }
 
     ATDMGameState* GameState = GetWorld()->GetGameState<ATDMGameState>();
-    if (!GameState) return true;
+    if (!GameState)
+    {
+        FAntiCheatLog::LogRejectedRequest(
+            this,
+            OutShooterPlayerState,
+            FireAction,
+            TEXT("MissingGameState"));
+        return false;
+    }
 
-    float ServerTime = GameState->GetServerWorldTimeSeconds();
-    if (ClientTimeStamp > ServerTime + 0.5f) return false;
+    const float ServerTime = GameState->GetServerWorldTimeSeconds();
+
+    if (ClientTimeStamp > ServerTime + Settings->FutureTimestampTolerance)
+    {
+        FAntiCheatLog::LogRejectedRequest(
+            this,
+            OutShooterPlayerState,
+            FireAction,
+            TEXT("TimestampFuture"));
+        return false;
+    }
+
+    if (ServerTime - ClientTimeStamp > Settings->MaxRewindSeconds)
+    {
+        FAntiCheatLog::LogRejectedRequest(
+            this,
+            OutShooterPlayerState,
+            FireAction,
+            TEXT("TimestampExpired"));
+        return false;
+    }
+
+    const FVector ServerAim = OutShooter->GetControlRotation().Vector().GetSafeNormal();
+
+    const float MinimumDot = FMath::Cos(FMath::DegreesToRadians(Settings->AimToleranceDegrees));
+
+    if (FVector::DotProduct(ServerAim, AimDirection) < MinimumDot)
+    {
+        FAntiCheatLog::LogRejectedRequest(
+            this,
+            OutShooterPlayerState,
+            FireAction,
+            TEXT("AimMismatch"));
+        return false;
+    }
+
+    OutStartLocation = OutShooter->GetMesh()->GetSocketLocation(TEXT("head"));
 
     return true;
 }
 
-void AShotWeapon::ServerFireWeapon_Implementation(FVector StartLocation, FVector AimDirection, float ClientTimeStamp)
+void AShotWeapon::ServerFireWeapon_Implementation(FVector AimDirection, float ClientTimeStamp)
 {
-    ATDMGameState* GameState = GetWorld()->GetGameState<ATDMGameState>();
-    if (!GameState) return;
+    AMP_game_structCharacter* Shooter = nullptr;
+    ATDMPlayerState* ShooterPS = nullptr;
+    FVector StartLocation = FVector::ZeroVector;
 
-    float ServerTime = GameState->GetServerWorldTimeSeconds();
-    if (ServerTime - ClientTimeStamp > 0.25f) return;
+    if (!ValidateFireRequest(AimDirection, ClientTimeStamp, Shooter, ShooterPS, StartLocation)) return;
+
+    FVector TraceEnd = StartLocation + (AimDirection * MaxShotRange);
 
     TArray<FHitResult> OutHits;
-    FVector TraceEnd = StartLocation + (AimDirection * MaxShotRange);
     FCollisionShape SweepShape = FCollisionShape::MakeSphere(200.0f);
 
     FCollisionQueryParams QueryParams;
@@ -83,13 +185,18 @@ void AShotWeapon::ServerFireWeapon_Implementation(FVector StartLocation, FVector
 
     if (bHit)
     {
+        AMP_game_structCharacter* BestTarget = nullptr;
+        FTransform BestHeadTransform;
+        FTransform BestTorsoTransform;
+        float BestDistance = MAX_flt;
+
         for (const FHitResult& Hit : OutHits)
         {
             AMP_game_structCharacter* Target = Cast<AMP_game_structCharacter>(Hit.GetActor());
             if (!Target) continue;
 
-            FHitboxSnapshot* BeforeShot = nullptr;;
-            FHitboxSnapshot* AfterShot = nullptr;;
+            FHitboxSnapshot* BeforeShot = nullptr;
+            FHitboxSnapshot* AfterShot = nullptr;
 
             for (int32 i = Target->HitboxSnapshots.Num() - 1; i >= 0; --i)
             {
@@ -105,12 +212,12 @@ void AShotWeapon::ServerFireWeapon_Implementation(FVector StartLocation, FVector
                     {
                         AfterShot = BeforeShot;
                     }
-
                     break;
                 }
             }
 
-            if (!BeforeShot) return;
+            if (!BeforeShot) continue;
+
             float alpha = (AfterShot == BeforeShot) ? 0.0f :
                 (ClientTimeStamp - BeforeShot->Timestamp) / (AfterShot->Timestamp - BeforeShot->Timestamp);
 
@@ -120,7 +227,45 @@ void AShotWeapon::ServerFireWeapon_Implementation(FVector StartLocation, FVector
             FTransform enemyTorso;
             enemyTorso.Blend(BeforeShot->TorsoTransform, AfterShot->TorsoTransform, alpha);
 
-            CalculateShot(StartLocation, AimDirection, enemyHead, enemyTorso, Target);
+            const float CandidateDistance = FVector::DistSquared(StartLocation, Hit.ImpactPoint);
+            if (CandidateDistance < BestDistance)
+            {
+                BestDistance = CandidateDistance;
+                BestTarget = Target;
+                BestHeadTransform = enemyHead;
+                BestTorsoTransform = enemyTorso;
+            }
+        }
+
+        if (BestTarget)
+        {
+            FHitResult BlockingHit;
+            FCollisionQueryParams LOSParams;
+
+            LOSParams.AddIgnoredActor(Shooter);
+            LOSParams.AddIgnoredActor(BestTarget);
+
+            const bool bBlocked = GetWorld()->LineTraceSingleByChannel(
+                BlockingHit,
+                StartLocation,
+                BestTorsoTransform.GetLocation(),
+                ECC_Visibility,
+                LOSParams);
+
+            if (bBlocked)
+            {
+                FAntiCheatLog::LogRejectedRequest(
+                    this,
+                    ShooterPS,
+                    TEXT("Fire"),
+                    FString::Printf(
+                        TEXT("BlockedLineOfSight Target=%s Blocker=%s"),
+                        *GetNameSafe(BestTarget),
+                        *GetNameSafe(BlockingHit.GetActor())));
+                return;
+            }
+
+            CalculateShot(StartLocation, AimDirection, BestHeadTransform, BestTorsoTransform, BestTarget);
             bCalculatedAnyShot = true;
         }
     }
@@ -154,9 +299,31 @@ void AShotWeapon::CalculateShot(FVector StartLocation, FVector AimDirection, FTr
         float DamageAmount = bHitHead ? 100.0f : 50.0f; // this is good for health component - will just kill enemy here
 
         AMP_game_structCharacter* Shooter = Cast<AMP_game_structCharacter>(GetOwner());
-        if (Shooter)
+        UHealthComponent* TargetHealth = Target ? Target->GetHealthComponent() : nullptr;
+        if (!Shooter || !TargetHealth) return;
+
+        ATDMPlayerState* ShooterPS = Shooter->GetPlayerState<ATDMPlayerState>();
+        ATDMPlayerState* TargetPS = Target->GetPlayerState<ATDMPlayerState>();
+
+        if (ShooterPS && TargetPS &&
+            ShooterPS->GetTeamId() == TargetPS->GetTeamId())
         {
-            Shooter->Server_KillTarget(Target);
+            FAntiCheatLog::LogRejectedRequest(
+                this,
+                ShooterPS,
+                TEXT("Fire"),
+                FString::Printf(
+                    TEXT("FriendlyTarget Target=%s TeamId=%d"),
+                    *GetNameSafe(Target),
+                    ShooterPS->GetTeamId()));
+
+            return;
+        }
+
+        TargetHealth->ServerApplyDamage(DamageAmount);
+        if (TargetHealth->IsDead())
+        {
+            Shooter->KillValidatedTarget(Target);
         }
 
         UE_LOG(LogTemp, Warning, TEXT("Lag-Compensated Hit on: %s. Headshot: %s"),

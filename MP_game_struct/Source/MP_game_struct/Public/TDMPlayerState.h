@@ -7,6 +7,9 @@
 #include "Net/UnrealNetwork.h"
 #include "TDMPlayerState.generated.h"
 
+class URPCRateLimiterComponent;
+struct FActionRateLimitSettings;
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPropertyIntChanged, int32, NewValue);
 /**
  * 
@@ -69,5 +72,22 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "TDM|State")
 	int32 GetDeaths() const { return Deaths; }
+
+private:
+	/** Persistent server-side rate-limit state for this player. */
+	UPROPERTY(VisibleAnywhere, Category = "Anti-Cheat")
+	TObjectPtr<URPCRateLimiterComponent> RPCRateLimiter;
+
+public:
+	bool ConsumeRPCBudget(
+		FName Action,
+		const FActionRateLimitSettings& Settings,
+		FString& OutReason,
+		double Cost = 1.0f);
+
+	URPCRateLimiterComponent* GetRPCRateLimiter() const
+	{
+		return RPCRateLimiter;
+	}
 
 };

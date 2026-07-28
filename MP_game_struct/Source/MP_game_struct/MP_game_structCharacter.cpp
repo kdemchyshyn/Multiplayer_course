@@ -12,12 +12,18 @@
 #include "InputActionValue.h"
 #include "Engine/OverlapResult.h"
 #include "Net/UnrealNetwork.h"
+#include "AntiCheat/AntiCheatLog.h"
 #include "TDMPlayerState.h"
 #include "TDMGameState.h"
 #include "TDMGameMode.h"
 #include "MP_game_struct.h"
+#include "HealthComponent.h"
+#include "ServerValidatedMovementComponent.h"
 
-AMP_game_structCharacter::AMP_game_structCharacter()
+static const FName KillTargetActionName(TEXT("KillTarget"));
+
+AMP_game_structCharacter::AMP_game_structCharacter(const FObjectInitializer& ObjectInitializer) 
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UServerValidatedMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
@@ -51,6 +57,7 @@ AMP_game_structCharacter::AMP_game_structCharacter()
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
 
+	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("Health"));
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 }
@@ -60,11 +67,10 @@ void AMP_game_structCharacter::BeginPlay()
 	// Call the base class  
 	Super::BeginPlay();
 
-	// Start the timer to take hitbox snapshots
-	GetWorldTimerManager().SetTimer(HitboxSnapshotTimerHandle, this, &AMP_game_structCharacter::TakeHitboxSnapshot, 0.05f, true);
-
 	if (HasAuthority())
 	{
+		GetWorldTimerManager().SetTimer(HitboxSnapshotTimerHandle, this, &AMP_game_structCharacter::TakeHitboxSnapshot, 0.05f, true);
+
 		FActorSpawnParameters SpawnParams;
 		SpawnParams.Owner = this;
 
@@ -165,32 +171,18 @@ void AMP_game_structCharacter::DoJumpEnd()
 
 void AMP_game_structCharacter::Kill(const FInputActionValue& Value)
 {
-	if (!EquippedWeapon) return;
+	if (!EquippedWeapon || !FollowCamera) return;
 
-	FTransform head = GetMesh()->GetSocketTransform(FName("head"), RTS_World);
+	ATDMGameState* GameState = GetWorld()->GetGameState<ATDMGameState>();
+	if (!GameState) return;
 
-	FVector StartLocation = head.GetLocation();
+	const FVector AimDirection = FollowCamera->GetForwardVector().GetSafeNormal();
+	const float ClientTimestamp = GameState->GetServerWorldTimeSeconds();
 
-	FVector AimDirection = FollowCamera->GetForwardVector();
-
-	float Timestamp = 0.0f;
-	if (ATDMGameState* GameState = GetWorld()->GetGameState<ATDMGameState>())
-	{
-		Timestamp = GameState->GetServerWorldTimeSeconds();
-	}
-
-	EquippedWeapon->ServerFireWeapon(StartLocation, AimDirection, Timestamp);
+	EquippedWeapon->ServerFireWeapon(AimDirection, ClientTimestamp);
 }
 
-bool AMP_game_structCharacter::Server_KillTarget_Validate(AActor* VictimActor)
-{
-	if (!VictimActor) return false;
-
-	return true;
-
-}
-
-void AMP_game_structCharacter::Server_KillTarget_Implementation(AActor* VictimActor)
+void AMP_game_structCharacter::KillValidatedTarget(AActor* VictimActor)
 {
 	if (!HasAuthority()) return;
 
@@ -207,7 +199,19 @@ void AMP_game_structCharacter::Server_KillTarget_Implementation(AActor* VictimAc
 
 	if (!VictimPS || !KillerPS) return;
 
-	if (VictimPS->GetTeamId() == KillerPS->GetTeamId()) return;
+	if (VictimPS->GetTeamId() == KillerPS->GetTeamId())
+	{
+		FAntiCheatLog::LogRejectedRequest(
+			this,
+			KillerPS,
+			KillTargetActionName,
+			FString::Printf(
+				TEXT("FriendlyTarget Target=%s TeamId=%d"),
+				*GetNameSafe(VictimActor),
+				KillerPS->GetTeamId()));
+
+		return;
+	}
 
 	ATDMGameMode* GM = GetWorld()->GetAuthGameMode<ATDMGameMode>();
 	if (GM)
@@ -215,7 +219,6 @@ void AMP_game_structCharacter::Server_KillTarget_Implementation(AActor* VictimAc
 		GM->ScoreKill(VictimPC, KillerPC);
 	}
 
-	// Actually destroy the victim and respawn them
 	VictimPawn->Destroy();
 	if (GM && VictimPC)
 	{

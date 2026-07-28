@@ -2,11 +2,12 @@
 
 
 #include "TDMPlayerState.h"
+#include "AntiCheat/RPCRateLimiterComponent.h"
 
 
 ATDMPlayerState::ATDMPlayerState()
 {
-
+	RPCRateLimiter = CreateDefaultSubobject<URPCRateLimiterComponent>(TEXT("RPCRateLimiter"));
 }
 
 void ATDMPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -58,4 +59,25 @@ void ATDMPlayerState::AddDeath()
 	Deaths++;
 
 	OnRep_Deaths();
+}
+
+bool ATDMPlayerState::ConsumeRPCBudget(	FName Action, const FActionRateLimitSettings& Settings,	FString& OutReason,	double Cost)
+{
+	if (!HasAuthority())
+	{
+		OutReason = TEXT("PlayerStateNotAuthority");
+		return false;
+	}
+
+	if (!RPCRateLimiter)
+	{
+		OutReason = TEXT("MissingRPCRateLimiter");
+		return false;
+	}
+
+	return RPCRateLimiter->TryConsume(
+		Action,
+		Settings,
+		Cost,
+		OutReason);
 }
